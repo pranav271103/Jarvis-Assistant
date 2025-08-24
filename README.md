@@ -1,5 +1,16 @@
 # Jarvis AI Assistant
 
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![GitHub release](https://img.shields.io/github/v/release/pranav271103/Jarvis-Assistant?include_prereleases&style=flat-square)](https://github.com/pranav271103/Jarvis-Assistant/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/pranav271103/Jarvis-Assistant?style=social)](https://github.com/pranav271103/Jarvis-Assistant/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/pulls)
+[![GitHub contributors](https://img.shields.io/github/contributors/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/graphs/contributors)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PyPI](https://img.shields.io/pypi/v/jarvis-ai-assistant)](https://pypi.org/project/jarvis-ai-assistant/)
+[![Downloads](https://static.pepy.tech/badge/jarvis-ai-assistant)](https://pepy.tech/project/jarvis-ai-assistant)
+
 A powerful voice and text-controlled AI assistant with system control capabilities. Built with Python and Google's Gemini 1.5 Flash model, Jarvis helps you be more productive by automating tasks through natural language commands.
 
 ## Key Features
@@ -73,24 +84,146 @@ A powerful voice and text-controlled AI assistant with system control capabiliti
      GEMINI_API_KEY=your_api_key_here
      ```
 
+## Launching Jarvis
+
+### Windows Users
+
+1. **Using launch.bat (Recommended)**
+   - Double-click `launch.bat` in File Explorer, or
+   - Run from Command Prompt:
+     ```cmd
+     launch.bat
+     ```
+   - The script will:
+     - Check for Python installation
+     - Set up a virtual environment if needed
+     - Install required dependencies
+     - Start Jarvis
+
+2. **Manual Setup**
+   ```cmd
+   python -m venv venv
+   .\venv\Scripts\activate
+   pip install -r requirements.txt
+   python main.py
+   ```
+
+### Unix/Linux/macOS Users
+
+1. **Using launch.sh**
+   - Make the script executable:
+     ```bash
+     chmod +x launch.sh
+     ```
+   - Run the script:
+     ```bash
+     ./launch.sh
+     ```
+   - The script will:
+     - Verify Python 3.8+ is installed
+     - Set up a virtual environment
+     - Install dependencies
+     - Start Jarvis
+
+2. **Manual Setup**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   python main.py
+   ```
+
+### First-Time Setup
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Edit `.env` and add your Gemini API key:
+   ```
+   GEMINI_API_KEY=your_api_key_here
+   ```
+
+### Command Line Arguments
+
+Both launchers support these arguments:
+
+- `--voice-off` - Disable voice input/output
+- `--debug` - Enable debug logging
+- `--config path/to/config.json` - Use custom config file
+
+Example:
+```bash
+./launch.sh --voice-off --debug
+```
+
 ## Getting Started
 
 ### Basic Usage
 
-Start Jarvis in voice mode:
-```bash
-python main.py
+Once launched, you can interact with Jarvis in several ways:
+
+### Voice Commands
+- Say "Hey Jarvis" to activate voice mode (if enabled)
+- Speak naturally to give commands
+- Example commands:
+  - "What time is it?"
+  - "Search for Python documentation"
+  - "Open Google"
+  - "System shutdown in 30 minutes"
+
+### Text Commands
+Type commands directly into the console:
+```
+> time
+> search artificial intelligence
+> open notepad
+> system info
 ```
 
-Start in text-only mode:
-```bash
-python main.py --text
-```
+### Keyboard Shortcuts
+- `Ctrl+C` - Exit the application
+- `Ctrl+V` - Toggle voice input (if enabled)
+- `Ctrl+H` - Show help
 
-Disable voice output (useful for quiet environments):
-```bash
-python main.py --voice-off
-```
+## Advanced Usage
+
+### Custom Commands
+Add custom commands by editing the command handlers in `commands/command_handler.py`.
+
+### Configuration
+Modify `config.py` to customize:
+- Voice settings (speed, volume, voice type)
+- Default applications
+- System behavior
+
+### Logging
+Logs are saved to `jarvis.log` by default. Use `--debug` flag for verbose logging.
+
+## Troubleshooting
+
+### Common Issues
+1. **Voice Recognition Not Working**
+   - Check microphone permissions
+   - Ensure PyAudio is properly installed
+   - Try running with `--voice-off` to test text input
+
+2. **API Key Errors**
+   - Verify your Gemini API key in `.env`
+   - Check your internet connection
+   - Ensure your API key has sufficient quota
+
+3. **Dependency Issues**
+   ```bash
+   # Reinstall dependencies
+   pip install -r requirements.txt --force-reinstall
+   ```
+
+### Getting Help
+For additional support:
+1. Check the [Wiki](https://github.com/pranav271103/Jarvis-Assistant/wiki)
+2. Open an [Issue](https://github.com/pranav271103/Jarvis-Assistant/issues)
+3. Check the [FAQ](#faq) section below
 
 ## Complete Command Reference
 
