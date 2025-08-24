@@ -6,10 +6,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/pranav271103/Jarvis-Assistant?style=social)](https://github.com/pranav271103/Jarvis-Assistant/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/pulls)
-[![GitHub contributors](https://img.shields.io/github/contributors/pranav271103/Jarvis-Assistant)](https://github.com/pranav271103/Jarvis-Assistant/graphs/contributors)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![PyPI](https://img.shields.io/pypi/v/jarvis-ai-assistant)](https://pypi.org/project/jarvis-ai-assistant/)
-[![Downloads](https://static.pepy.tech/badge/jarvis-ai-assistant)](https://pepy.tech/project/jarvis-ai-assistant)
 
 A powerful voice and text-controlled AI assistant with system control capabilities. Built with Python and Google's Gemini 1.5 Flash model, Jarvis helps you be more productive by automating tasks through natural language commands.
 
