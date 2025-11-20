@@ -1,16 +1,11 @@
-"""
-Command handler for processing and executing user commands.
-
-This module provides a command processing system with security checks,
-error handling, and integration with system utilities and LLM services.
-"""
 import webbrowser
 import os
 import sys
 import json
 import logging
 import datetime
-from typing import Dict, Callable, List, Optional, Tuple, Union, Any, TypeVar, Type
+import re
+from typing import Dict, Callable, List, Optional, Tuple, Union, Any, TypeVar
 from pathlib import Path
 from urllib.parse import quote
 
@@ -34,29 +29,11 @@ T = TypeVar('T', bound='CommandHandler')
 
 logger = logging.getLogger(__name__)
 
-class CommandError(Exception):
-    """Base exception for command-related errors."""
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
-        self.message = message
-        self.details = details or {}
-        super().__init__(self.message)
-
-class CommandExecutionError(CommandError):
-    """Raised when a command fails to execute."""
-    pass
-
-class CommandValidationError(CommandError):
-    """Raised when command validation fails."""
-    pass
-
-class ResourceUnavailableError(CommandError):
-    """Raised when a required resource is unavailable."""
-    pass
 
 class CommandHandler:
     """Handles command processing and execution with security and error handling."""
     
-    def __init__(self, 
+    def __init__(self,
                  system_controller: Optional[SystemController] = None,
                  llm_chat: Optional[GeminiChat] = None,
                  speech_synthesizer: Optional[SpeechSynthesizer] = None,
@@ -132,7 +109,6 @@ class CommandHandler:
                 'usage': 'exit',
                 'needs_voice': False
             },
-            
             # System control commands
             'system': {
                 'handler': self._system_control,
@@ -161,7 +137,6 @@ class CommandHandler:
                 'usage': 'system_info',
                 'needs_voice': False
             },
-            
             # Voice control commands
             'voice': {
                 'handler': self._toggle_voice,
@@ -198,8 +173,6 @@ class CommandHandler:
             'open': 'open',
             'launch': 'open',
             'start': 'open',
-            'send an email': 'email',
-            'compose email': 'email',
             
             # System controls
             'shutdown': 'system shutdown',
@@ -263,6 +236,143 @@ class CommandHandler:
         
         return web_apps, system_apps
     
+    def _parse_command(self, user_input: str) -> Tuple[str, str]:
+        """
+        Parse natural language input to extract command and arguments.
+        
+        Args:
+            user_input: The raw user input string
+            
+        Returns:
+            Tuple of (command, arguments_string)
+        """
+        if not user_input or not isinstance(user_input, str):
+            return None, ""
+        
+        user_input = user_input.strip().lower()
+        
+        # Check for exact command matches first
+        if user_input in self.commands:
+            return user_input, ""
+        
+        # Try to match voice commands
+        for voice_cmd, mapped_cmd in self.voice_commands.items():
+            if user_input.startswith(voice_cmd):
+                args = user_input[len(voice_cmd):].strip()
+                return mapped_cmd, args
+        
+        # Parse system commands with actions
+        system_actions = ['shutdown', 'restart', 'sleep', 'lock', 'hibernate', 'logout']
+        for action in system_actions:
+            if action in user_input:
+                return 'system', action
+        
+        # Check if user input starts with any registered command
+        parts = user_input.split(maxsplit=1)
+        if parts:
+            cmd = parts[0]
+            args = parts[1] if len(parts) > 1 else ""
+            
+            if cmd in self.commands:
+                return cmd, args
+            
+            # Check for partial command matches
+            for registered_cmd in self.commands.keys():
+                if cmd.startswith(registered_cmd) or registered_cmd.startswith(cmd):
+                    return registered_cmd, args
+        
+        # If no command found, check if it looks like a search query
+        search_keywords = ['search', 'find', 'look up', 'google']
+        for keyword in search_keywords:
+            if keyword in user_input:
+                query = user_input.replace(keyword, '').strip()
+                return 'search', query
+        
+        # Default: treat as LLM query if LLM is available
+        return None, user_input
+    
+    def handle_command(self, user_input: str) -> str:
+        """
+        Handle a command with intelligent parsing and error handling.
+        
+        Args:
+            user_input: The complete user input string
+            
+        Returns:
+            str: Response from command execution
+        """
+        if not user_input or not isinstance(user_input, str) or not user_input.strip():
+            return "Please provide a command."
+        
+        try:
+            # Parse the command and arguments
+            command, args_string = self._parse_command(user_input)
+            
+            # Log the parsed command
+            logger.info(f"Parsed command: '{command}' with args: '{args_string}'")
+            
+            # If no command found, use LLM for general conversation
+            if not command:
+                if self.llm_chat:
+                    try:
+                        return self.llm_chat.generate_response(user_input)
+                    except Exception as e:
+                        logger.error(f"LLM error: {e}")
+                        return "I'm not sure how to help with that. Try 'help' to see available commands."
+                else:
+                    return "I'm not sure how to help with that. Try 'help' to see available commands."
+            
+            # Handle 'system' command specially to extract action from args
+            if command == 'system':
+                if not args_string:
+                    return "Please specify a system action: shutdown, restart, sleep, lock, hibernate, or logout."
+                return self._system_control(args_string)
+            
+            # Get the command handler
+            if command not in self.commands:
+                suggestions = self._get_suggestions(command)
+                if suggestions:
+                    return f"Unknown command: '{command}'. Did you mean: {', '.join(suggestions)}?"
+                return f"Unknown command: '{command}'. Type 'help' for available commands."
+            
+            cmd_info = self.commands[command]
+            handler = cmd_info['handler']
+            
+            # Check if voice is required but not enabled
+            if cmd_info.get('needs_voice', False) and not self.voice_enabled:
+                return "Voice control is disabled. Enable it with 'voice on'."
+            
+            # Execute the command with arguments
+            if args_string:
+                # Split args into list for multi-argument commands
+                args_list = args_string.split()
+                result = handler(*args_list)
+            else:
+                result = handler()
+            
+            # Add to command history
+            self.command_history.append({
+                'timestamp': datetime.datetime.now().isoformat(),
+                'command': command,
+                'args': args_string,
+                'success': True
+            })
+            
+            return result if result else "Command executed successfully."
+            
+        except CommandValidationError as e:
+            logger.error(f"Validation error: {e.message}")
+            return e.message
+        except CommandExecutionError as e:
+            logger.error(f"Execution error: {e.message}")
+            return e.message
+        except ResourceUnavailableError as e:
+            logger.error(f"Resource error: {e.message}")
+            return e.message
+        except Exception as e:
+            logger.exception(f"Unexpected error handling command: {user_input}")
+            return f"An unexpected error occurred: {str(e)}"
+    
     def _get_suggestions(self, target: str) -> List[str]:
         """
         Get suggested commands similar to the target.
@@ -275,170 +385,38 @@ class CommandHandler:
         """
         if not target or not isinstance(target, str):
             return []
-            
+        
         try:
             suggestions = []
             target_lower = target.lower()
             
-            # Check for partial matches in web apps
-            if hasattr(self, 'web_apps'):
-                suggestions.extend(
-                    app for app in self.web_apps
-                    if target_lower in app.lower()
-                )
-            
-            # Check for partial matches in system apps
-            if hasattr(self, 'system_apps'):
-                suggestions.extend(
-                    app for app in self.system_apps
-                    if target_lower in app.lower()
-                )
-            
             # Check for partial matches in commands
-            if hasattr(self, 'commands'):
-                for cmd in self.commands:
-                    if target_lower in cmd.lower():
-                        suggestions.append(cmd)
+            for cmd in self.commands.keys():
+                if target_lower in cmd.lower() or cmd.lower() in target_lower:
+                    suggestions.append(cmd)
             
-            # Remove duplicates and limit the number of suggestions
+            # Check for partial matches in web apps
+            for app in self.web_apps.keys():
+                if target_lower in app.lower():
+                    suggestions.append(f"open {app}")
+            
+            # Remove duplicates and limit
             return list(dict.fromkeys(suggestions))[:5]
             
         except Exception as e:
             logger.error(f"Error getting suggestions for '{target}': {e}")
             return []
     
-    def _match_command(self, command: str) -> Tuple[str, List[str]]:
-        """
-        Match a voice command to the best fitting command.
-        
-        Args:
-            command: The voice command to match
-            
-        Returns:
-            Tuple of (matched_command, arguments) or (None, []) if no match
-        """
-        if not command or not isinstance(command, str):
-            return None, []
-            
-        command = command.lower().strip()
-        
-        # Try exact match first
-        if command in self.voice_commands:
-            return self.voice_commands[command], []
-        
-        # Try partial matches
-        for voice_cmd, cmd in self.voice_commands.items():
-            if command.startswith(voice_cmd):
-                args = command[len(voice_cmd):].strip().split()
-                return cmd, args
-        
-        # No match found
-        return None, []
-    
-    def handle_command(self, command: str, *args) -> str:
-        """
-        Handle a command with its arguments.
-        
-        Args:
-            command: The command to execute
-            *args: Arguments for the command
-            
-        Returns:
-            str: The command response
-            
-        Raises:
-            CommandError: If the command execution fails
-        """
-        if not command or not isinstance(command, str):
-            raise CommandValidationError("No command provided")
-        
-        command = command.lower().strip()
-        
-        # Log the command
-        logger.info(f"Processing command: {command} with args: {args}")
-        
-        # Try direct command execution first
-        if command in self.commands:
-            try:
-                cmd_info = self.commands[command]
-                handler = cmd_info.get('handler')
-                
-                if not handler or not callable(handler):
-                    raise CommandExecutionError(f"Invalid handler for command: {command}")
-                
-                # Execute the command handler
-                result = handler(*args)
-                
-                # Log successful command execution
-                self.command_history.append({
-                    'command': command,
-                    'args': args,
-                    'timestamp': datetime.datetime.now().isoformat(),
-                    'success': True
-                })
-                
-                return result
-                
-            except Exception as e:
-                # Log command failure
-                self.command_history.append({
-                    'command': command,
-                    'args': args,
-                    'timestamp': datetime.datetime.now().isoformat(),
-                    'success': False,
-                    'error': str(e)
-                })
-                
-                # Re-raise the exception with additional context
-                if not isinstance(e, CommandError):
-                    raise CommandExecutionError(
-                        f"Error executing command '{command}': {str(e)}",
-                        details={'command': command, 'args': args}
-                    ) from e
-                raise
-        
-        # Try to match voice command patterns
-        matched_cmd, cmd_args = self._match_command(command)
-        if matched_cmd and matched_cmd in self.commands:
-            return self.handle_command(matched_cmd, *cmd_args, *args)
-        
-        # No command matched
-        suggestions = self._get_suggestions(command)
-        suggestion_text = f"\n\nSimilar commands: {', '.join(suggestions)}" if suggestions else ""
-        raise CommandValidationError(
-            f"Unknown command: {command}" + suggestion_text,
-            details={'command': command, 'suggestions': suggestions}
-        )
-    
     # Command implementations
-    
     def _get_current_time(self, *args) -> str:
-        """
-        Get the current time.
-        
-        Returns:
-            str: Formatted current time
-        """
-        try:
-            current_time = datetime.datetime.now().strftime('%I:%M %p')
-            return f"The current time is {current_time}"
-        except Exception as e:
-            logger.error(f"Error getting current time: {e}")
-            return "I couldn't get the current time. Please try again later."
+        """Get the current time."""
+        now = datetime.datetime.now()
+        return f"The current time is {now.strftime('%I:%M %p')}"
     
     def _get_current_date(self, *args) -> str:
-        """
-        Get the current date.
-        
-        Returns:
-            str: Formatted current date
-        """
-        try:
-            current_date = datetime.datetime.now().strftime('%A, %B %d, %Y')
-            return f"Today is {current_date}"
-        except Exception as e:
-            logger.error(f"Error getting current date: {e}")
-            return "I couldn't get the current date. Please try again later."
+        """Get the current date."""
+        now = datetime.datetime.now()
+        return f"Today is {now.strftime('%A, %B %d, %Y')}"
     
     def _search_web(self, *args) -> str:
         """
@@ -449,37 +427,24 @@ class CommandHandler:
             
         Returns:
             str: Status message
-            
-        Raises:
-            CommandValidationError: If the search query is invalid
-            CommandExecutionError: If the search fails
         """
         try:
-            if not args:
+            if not args or not any(args):
                 raise CommandValidationError("Please specify what you'd like to search for.")
             
-            # Sanitize query to prevent injection
             query = ' '.join(args).strip()
             if not query:
-                raise CommandValidationError("Search query cannot be empty.")
-                
-            # URL encode the query
-            encoded_query = quote(query)
+                raise CommandValidationError("Please specify what you'd like to search for.")
             
-            # Construct and open the search URL
-            search_url = f"https://www.google.com/search?q={encoded_query}"
+            search_url = f"https://www.google.com/search?q={quote(query)}"
             webbrowser.open(search_url)
+            logger.info(f"Searching for: {query}")
+            return f"Searching for '{query}'"
             
-            return f"Searching the web for: {query}"
-            
-        except webbrowser.Error as e:
-            error_msg = f"Failed to open web browser: {e}"
-            logger.error(error_msg)
-            raise CommandExecutionError("I couldn't open the web browser.") from e
-            
+        except CommandValidationError:
+            raise
         except Exception as e:
-            error_msg = f"Error performing web search: {e}"
-            logger.error(error_msg)
+            logger.error(f"Error performing web search: {e}")
             raise CommandExecutionError("I encountered an error while searching the web.") from e
     
     def _open_application(self, *args) -> str:
@@ -487,143 +452,94 @@ class CommandHandler:
         Open an application or website.
         
         Args:
-            *args: Application/website name or path
+            *args: Application name or URL
             
         Returns:
             str: Status message
-            
-        Raises:
-            CommandValidationError: If no target is specified
-            CommandExecutionError: If the application/website cannot be opened
         """
         try:
-            if not args:
-                raise CommandValidationError("Please specify an application or website to open.")
+            if not args or not any(args):
+                raise CommandValidationError("Please specify what you'd like to open.")
             
-            target = args[0].lower().strip()
+            target = ' '.join(args).strip().lower()
             if not target:
-                raise CommandValidationError("Application/website name cannot be empty.")
+                raise CommandValidationError("Please specify what you'd like to open.")
             
-            # Check if it's a web app
+            # Check if it's a URL
+            if target.startswith(('http://', 'https://', 'www.')):
+                webbrowser.open(target if target.startswith('http') else f'https://{target}')
+                return f"Opening {target}"
+            
+            # Check web apps
             if target in self.web_apps:
-                url = self.web_apps[target]
-                try:
-                    webbrowser.open(url)
-                    return f"Opening {target} in your browser."
-                except webbrowser.Error as e:
-                    raise CommandExecutionError(
-                        f"I couldn't open {target} in your browser.",
-                        details={'error': str(e), 'url': url}
-                    ) from e
+                webbrowser.open(self.web_apps[target])
+                return f"Opening {target}"
             
-            # Check if it's a system app
+            # Check system apps
             if target in self.system_apps:
-                app_path = self.system_apps[target]
                 try:
-                    os.startfile(app_path)
-                    return f"Opening {target}..."
-                except OSError as e:
-                    raise CommandExecutionError(
-                        f"I couldn't open {target}.",
-                        details={'error': str(e), 'app': target, 'path': app_path}
-                    ) from e
+                    os.startfile(self.system_apps[target])
+                    return f"Opening {target}"
+                except Exception as e:
+                    logger.error(f"Failed to open {target}: {e}")
+                    raise CommandExecutionError(f"Failed to open {target}")
             
-            # If not found in either, try to open as URL or file path
+            # Try to open as a system command
             try:
-                # Check if it looks like a URL
-                if any(target.startswith(prefix) for prefix in ('http://', 'https://', 'www.')):
-                    url = target if target.startswith('http') else f'https://{target}'
-                    webbrowser.open(url)
-                    return f"Opening {url} in your browser."
-                
-                # Try as a file path
-                path = Path(target).expanduser().resolve()
-                if path.exists():
-                    os.startfile(str(path))
-                    return f"Opening {path.name}..."
-                
-                # If we get here, we couldn't identify the target
+                os.startfile(target)
+                return f"Opening {target}"
+            except:
                 suggestions = self._get_suggestions(target)
                 if suggestions:
-                    suggestion_text = ". Try one of these: " + ", ".join(suggestions)
-                else:
-                    suggestion_text = ""
-                    
-                raise CommandValidationError(
-                    f"I don't know how to open '{target}'." + suggestion_text,
-                    details={'target': target, 'suggestions': suggestions}
-                )
+                    return f"I couldn't find '{target}'. Did you mean: {', '.join(suggestions)}?"
+                return f"I couldn't find '{target}'. Try 'help' for available options."
                 
-            except (OSError, webbrowser.Error) as e:
-                raise CommandExecutionError(
-                    f"I couldn't open '{target}'.",
-                    details={'error': str(e), 'target': target}
-                ) from e
-                
-        except Exception as e:
-            if not isinstance(e, (CommandValidationError, CommandExecutionError)):
-                logger.exception("Unexpected error in _open_application")
-                raise CommandExecutionError(
-                    "An unexpected error occurred while trying to open that.",
-                    details={'error': str(e), 'target': target}
-                ) from e
+        except CommandValidationError:
             raise
+        except CommandExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error opening application: {e}")
+            raise CommandExecutionError(f"Failed to open application: {str(e)}") from e
     
     def _clear_chat(self, *args) -> str:
-        """
-        Clear the chat history.
-        
-        Returns:
-            str: Confirmation message
-            
-        Raises:
-            CommandExecutionError: If clearing the chat fails
-        """
+        """Clear the chat history."""
         try:
-            if not hasattr(self, 'llm_chat') or not self.llm_chat:
-                raise ResourceUnavailableError("Chat functionality is not available.")
-                
-            if hasattr(self.llm_chat, 'clear_history'):
-                self.llm_chat.clear_history()
-                return "Chat history cleared."
-            return "Chat history clearing is not supported by the current chat instance."
-            
+            if self.llm_chat:
+                self.llm_chat.clear_conversation()
+            self.command_history.clear()
+            return "Chat history cleared."
         except Exception as e:
-            error_msg = f"Failed to clear chat history: {e}"
-            logger.error(error_msg)
-            raise CommandExecutionError(
-                "I couldn't clear the chat history.",
-                details={'error': str(e)}
-            ) from e
+            logger.error(f"Error clearing chat: {e}")
+            return "Failed to clear chat history."
     
     def _show_help(self, *args) -> str:
         """
-        Show available commands or help for a specific command.
+        Show help information.
         
         Args:
-            *args: Optional command name to get help for
+            *args: Optional specific command to get help for
             
         Returns:
-            str: Help message
+            str: Help information
         """
         if args and args[0]:
-            # Show help for a specific command
             cmd = args[0].lower()
             if cmd in self.commands:
-                cmd_info = self.commands[cmd]
-                help_text = [
-                    f"Command: {cmd}",
-                    f"Description: {cmd_info.get('description', 'No description available')}",
-                    f"Usage: {cmd_info.get('usage', cmd)}"
-                ]
-                return "\n".join(help_text)
-            return f"No help available for unknown command: {cmd}"
+                info = self.commands[cmd]
+                return f"{cmd}: {info.get('description', 'No description')}\nUsage: {info.get('usage', cmd)}"
+            return f"Unknown command: {cmd}"
         
         # Show all available commands
         help_text = ["Available commands:", ""]
         for cmd, info in sorted(self.commands.items()):
-            if not info.get('needs_voice', False):  # Skip voice-only commands
-                help_text.append(f"{cmd}: {info.get('description', 'No description')}")
+            if not info.get('needs_voice', False):
+                help_text.append(f"  {cmd}: {info.get('description', 'No description')}")
+        
+        help_text.append("\nYou can also:")
+        help_text.append("  - Ask questions naturally")
+        help_text.append("  - Say 'search [query]' to search the web")
+        help_text.append("  - Say 'open [app/website]' to open applications")
         
         return "\n".join(help_text)
     
@@ -632,181 +548,111 @@ class CommandHandler:
         Handle system control commands.
         
         Args:
-            action: The system action to perform (shutdown, restart, etc.)
+            action: The system action to perform
             
         Returns:
             str: Status message
-            
-        Raises:
-            CommandValidationError: If the action is not supported
-            CommandExecutionError: If the system command fails
         """
         if not action:
-            raise CommandValidationError("Please specify a system action (shutdown, restart, etc.)")
+            raise CommandValidationError(
+                "Please specify a system action: shutdown, restart, sleep, lock, hibernate, or logout."
+            )
         
-        action = action.lower()
+        action = action.lower().strip()
         
         try:
-            if action == 'shutdown':
-                self.system_controller.shutdown()
-                return "System is shutting down..."
-            elif action == 'restart':
-                self.system_controller.restart()
-                return "System is restarting..."
-            elif action == 'sleep':
-                self.system_controller.sleep()
-                return "System is going to sleep..."
-            elif action == 'lock':
-                self.system_controller.lock()
-                return "System is locked."
-            elif action == 'hibernate':
-                self.system_controller.hibernate()
-                return "System is hibernating..."
-            elif action == 'logout':
-                self.system_controller.logout()
-                return "Logging out..."
+            success, message = self.system_controller.system_control(action)
+            if success:
+                return message
             else:
-                raise CommandValidationError(
-                    f"Unsupported system action: {action}",
-                    details={'valid_actions': ['shutdown', 'restart', 'sleep', 'lock', 'hibernate', 'logout']}
-                )
+                raise CommandExecutionError(message)
                 
         except SystemCommandError as e:
-            raise CommandExecutionError(
-                f"Failed to execute system command: {e}",
-                details={'action': action, 'error': str(e)}
-            ) from e
+            raise CommandExecutionError(f"Failed to execute system command: {e}") from e
         except Exception as e:
             logger.exception("Unexpected error in system control")
-            raise CommandExecutionError(
-                f"An unexpected error occurred while trying to {action} the system.",
-                details={'action': action, 'error': str(e)}
-            ) from e
+            raise CommandExecutionError(f"An unexpected error occurred: {str(e)}") from e
     
     def _list_processes(self, *args) -> str:
-        """
-        List running processes.
-        
-        Returns:
-            str: Formatted list of processes
-            
-        Raises:
-            CommandExecutionError: If process listing fails
-        """
+        """List running processes."""
         try:
-            processes = self.system_controller.get_processes()
+            processes = self.system_controller.get_running_processes()
             if not processes:
                 return "No processes found."
-                
-            # Format the process list
-            process_list = ["Running processes:", "PID\tName"]
-            for pid, name in processes[:10]:  # Show first 10 processes
-                process_list.append(f"{pid}\t{name}")
-                
-            if len(processes) > 10:
-                process_list.append(f"... and {len(processes) - 10} more processes")
-                
+            
+            process_list = ["Running processes (top 20):", "PID    Name"]
+            for proc in processes[:20]:
+                pid = proc.get('pid', 'N/A')
+                name = proc.get('name', 'Unknown')
+                process_list.append(f"{pid:<6} {name}")
+            
+            if len(processes) > 20:
+                process_list.append(f"\n... and {len(processes) - 20} more processes")
+            
             return "\n".join(process_list)
             
-        except SystemCommandError as e:
-            raise CommandExecutionError(
-                "Failed to list processes.",
-                details={'error': str(e)}
-            ) from e
         except Exception as e:
             logger.exception("Error listing processes")
-            raise CommandExecutionError(
-                "An error occurred while listing processes.",
-                details={'error': str(e)}
-            ) from e
+            raise CommandExecutionError("Failed to list processes.") from e
     
-    def _kill_process(self, pid: str = None) -> str:
+    def _kill_process(self, *args) -> str:
         """
         Terminate a process by PID.
         
         Args:
-            pid: Process ID to terminate
+            *args: Process ID to terminate
             
         Returns:
             str: Status message
-            
-        Raises:
-            CommandValidationError: If PID is not provided or invalid
-            CommandExecutionError: If process termination fails
         """
-        if not pid:
+        if not args or not args[0]:
             raise CommandValidationError("Please specify a process ID to terminate.")
-            
+        
         try:
-            pid_int = int(pid)
-            if pid_int <= 0:
+            pid = int(args[0])
+            if pid <= 0:
                 raise CommandValidationError("Process ID must be a positive number.")
-                
-            success = self.system_controller.terminate_process(pid_int)
-            if success:
-                return f"Process {pid} terminated successfully."
-            return f"Failed to terminate process {pid}."
             
+            success, message = self.system_controller.kill_process(pid)
+            if success:
+                return message
+            else:
+                raise CommandExecutionError(message)
+                
         except ValueError:
             raise CommandValidationError("Process ID must be a number.")
-        except SystemCommandError as e:
-            raise CommandExecutionError(
-                f"Failed to terminate process {pid}.",
-                details={'pid': pid, 'error': str(e)}
-            ) from e
         except Exception as e:
-            logger.exception(f"Error terminating process {pid}")
-            raise CommandExecutionError(
-                f"An error occurred while terminating process {pid}.",
-                details={'pid': pid, 'error': str(e)}
-            ) from e
+            logger.exception(f"Error terminating process")
+            raise CommandExecutionError(f"Failed to terminate process: {str(e)}") from e
     
     def _get_system_info(self, *args) -> str:
-        """
-        Get system information.
-        
-        Returns:
-            str: Formatted system information
-            
-        Raises:
-            CommandExecutionError: If system info retrieval fails
-        """
+        """Get system information."""
         try:
             info = self.system_controller.get_system_info()
             if not info:
                 return "No system information available."
-                
-            # Format the system info
-            info_lines = ["System Information:"]
+            
+            info_lines = ["System Information:", ""]
             for key, value in info.items():
-                info_lines.append(f"{key.replace('_', ' ').title()}: {value}")
-                
+                if key != 'disk_usage':
+                    info_lines.append(f"{key.replace('_', ' ').title()}: {value}")
+            
+            # Handle disk usage separately
+            if 'disk_usage' in info and isinstance(info['disk_usage'], dict):
+                info_lines.append("\nDisk Usage:")
+                for mount, usage in info['disk_usage'].items():
+                    info_lines.append(f"  {mount}: {usage}")
+            
             return "\n".join(info_lines)
             
-        except SystemCommandError as e:
-            raise CommandExecutionError(
-                "Failed to retrieve system information.",
-                details={'error': str(e)}
-            ) from e
         except Exception as e:
             logger.exception("Error getting system info")
-            raise CommandExecutionError(
-                "An error occurred while retrieving system information.",
-                details={'error': str(e)}
-            ) from e
+            raise CommandExecutionError("Failed to retrieve system information.") from e
     
-    def _toggle_voice(self, state: str = None) -> str:
-        """
-        Toggle voice control on/off.
-        
-        Args:
-            state: Optional state to set ('on' or 'off')
-            
-        Returns:
-            str: Status message
-        """
-        if state:
-            state = state.lower()
+    def _toggle_voice(self, *args) -> str:
+        """Toggle voice control on/off."""
+        if args and args[0]:
+            state = args[0].lower()
             if state in ('on', 'enable', 'yes', 'true'):
                 self.voice_enabled = True
                 return "Voice control enabled."
@@ -816,34 +662,23 @@ class CommandHandler:
             else:
                 return f"Invalid state: {state}. Use 'on' or 'off'."
         
-        # Toggle current state
         self.voice_enabled = not self.voice_enabled
         status = "enabled" if self.voice_enabled else "disabled"
         return f"Voice control {status}."
     
     def _listen_command(self, *args) -> str:
-        """
-        Listen for a voice command.
-        
-        Returns:
-            str: Status message or command response
-            
-        Raises:
-            ResourceUnavailableError: If speech recognition is not available
-        """
+        """Listen for a voice command."""
         if not self.voice_enabled:
             return "Voice control is currently disabled. Say 'voice on' to enable it."
-            
+        
         if not self.speech_recognizer:
             raise ResourceUnavailableError("Speech recognition is not available.")
-            
+        
         try:
-            # Listen for a voice command
             text = self.speech_recognizer.listen()
             if not text or not text.strip():
                 return "I didn't catch that. Please try again."
-                
-            # Process the recognized command
+            
             return f"You said: {text}\n{self.handle_command(text)}"
             
         except Exception as e:
@@ -851,25 +686,23 @@ class CommandHandler:
             return "I'm having trouble with voice recognition. Please try again or use text input."
     
     def _exit_application(self, *args) -> str:
-        """
-        Exit the application.
-        
-        Returns:
-            str: Farewell message
-        """
-        # Clean up resources
+        """Exit the application."""
         if hasattr(self, 'llm_chat') and self.llm_chat:
             try:
-                self.llm_chat.close()
+                self.llm_chat.clear_conversation()
             except Exception as e:
                 logger.error(f"Error closing LLM chat: {e}")
         
-        # Exit the application
         sys.exit(0)
-        return "Goodbye!"
+
 
 # Initialize command handler
-command_handler = CommandHandler()
+try:
+    command_handler = CommandHandler()
+except Exception as e:
+    logger.error(f"Failed to initialize command handler: {e}")
+    command_handler = None
+
 
 def process_command(command: str) -> str:
     """
@@ -881,18 +714,14 @@ def process_command(command: str) -> str:
     Returns:
         str: The command response
     """
+    if not command_handler:
+        return "Command handler is not initialized."
+    
     if not command or not command.strip():
         return "Please provide a command."
-        
-    # Split the command into parts
-    parts = command.strip().split()
-    cmd = parts[0].lower()
-    args = parts[1:] if len(parts) > 1 else []
     
     try:
-        return command_handler.handle_command(cmd, *args)
-    except CommandError as e:
-        return f"Error: {e.message}"
+        return command_handler.handle_command(command)
     except Exception as e:
         logger.exception(f"Unexpected error processing command: {command}")
         return f"An unexpected error occurred: {str(e)}"
