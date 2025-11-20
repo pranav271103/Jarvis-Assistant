@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
 """
 Jarvis AI Assistant
+
 A voice-controlled AI assistant powered by Gemini 1.5 Pro
 """
+
 import os
 import sys
 import logging
@@ -18,7 +19,7 @@ sys.path.append(str(Path(__file__).parent.absolute()))
 # Import local modules
 from config import Config
 from utils.speech_utils import speak, listen
-from commands.command_handler import command_handler
+from commands.command_handler_new import command_handler
 
 # Configure logging
 logging.basicConfig(
@@ -29,7 +30,9 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
 logger = logging.getLogger(__name__)
+
 
 class JarvisAssistant:
     def __init__(self, text_mode=False):
@@ -39,7 +42,8 @@ class JarvisAssistant:
         self.voice_enabled = not text_mode
         
         # Set voice mode in command handler
-        command_handler.voice_enabled = self.voice_enabled
+        if command_handler:
+            command_handler.voice_enabled = self.voice_enabled
     
     def say(self, message: str, important: bool = False):
         """Speak a message if voice is enabled."""
@@ -64,7 +68,7 @@ class JarvisAssistant:
                         print("I didn't catch that. Please try again.")
                         attempts += 1
                         continue
-                        
+                    
                     print(f"You: {user_input}")
                     return user_input
                     
@@ -72,14 +76,14 @@ class JarvisAssistant:
                     logger.error(f"Error getting user input: {e}")
                     print("I'm having trouble with the microphone. Please check your audio settings.")
                     attempts += 1
-                    
+            
             # If we get here, all attempts failed
             if not self.text_mode:
                 print("Switching to text input mode due to audio issues...")
                 self.text_mode = True
                 return self.get_user_input()
-                
-            return ""  # Return empty string as fallback
+            
+            return ""
     
     def process_command(self, command: str) -> bool:
         """Process a single command."""
@@ -98,25 +102,22 @@ class JarvisAssistant:
                 self.say("Goodbye! Have a great day!")
                 return False
             
-            # Process the command
+            # Process the command using the full input
+            if not command_handler:
+                self.say("Command handler is not available.", important=True)
+                return True
+            
             response = command_handler.handle_command(command)
             
             # Handle the response
             if response:
-                if isinstance(response, tuple):
-                    success, message = response
-                    self.say(message, important=not success)
-                    if not success:
-                        logger.warning(f"Command failed: {message}")
-                else:
-                    self.say(response)
+                self.say(response)
             
             return True
             
         except KeyboardInterrupt:
             self.say("Goodbye!")
             return False
-            
         except Exception as e:
             error_msg = f"I'm sorry, I encountered an error: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -133,19 +134,22 @@ class JarvisAssistant:
                 try:
                     user_input = self.get_user_input()
                     self.running = self.process_command(user_input)
+                    
                 except KeyboardInterrupt:
                     self.say("Goodbye!")
                     break
                 except Exception as e:
                     logger.error(f"Unexpected error: {e}", exc_info=True)
                     self.say("An unexpected error occurred. Please try again.", important=True)
-                    time.sleep(1)  # Prevent tight loop on errors
+                    time.sleep(1)
+                    
         except Exception as e:
             logger.critical(f"Critical error: {e}", exc_info=True)
             self.say("A critical error occurred. Please restart the application.", important=True)
             return False
         
         return True
+
 
 def main():
     """Main function to run the Jarvis assistant."""
@@ -168,9 +172,11 @@ def main():
     
     # Initialize and run the assistant
     assistant = JarvisAssistant(text_mode=args.text)
+    
     if args.voice_off:
         assistant.voice_enabled = False
-        command_handler.voice_enabled = False
+        if command_handler:
+            command_handler.voice_enabled = False
     
     try:
         success = assistant.run()
@@ -178,11 +184,10 @@ def main():
             logger.error("Assistant encountered an error during execution")
             return 1
         return 0
-            
+        
     except KeyboardInterrupt:
         print("\nGoodbye!")
         return 0
-        
     except Exception as e:
         logger.critical(f"Fatal error: {e}", exc_info=True)
         error_msg = f"A fatal error occurred: {e}"
@@ -190,12 +195,12 @@ def main():
         try:
             speak("I'm sorry, I encountered a critical error and need to shut down.")
         except:
-            pass  # If speak fails, continue with shutdown
+            pass
         return 1
-        
     finally:
         logger.info("Jarvis has been shut down.")
         print("\nGoodbye!")
 
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
