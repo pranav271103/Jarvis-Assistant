@@ -3,6 +3,7 @@ System utilities for controlling the computer and getting system information.
 
 This module provides system-level operations with proper security measures and error handling.
 """
+
 import os
 import platform
 import subprocess
@@ -14,13 +15,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class SystemCommandError(Exception):
     """Exception raised for errors in system command execution."""
+    
     def __init__(self, message: str, returncode: Optional[int] = None, stderr: Optional[str] = None):
         self.message = message
         self.returncode = returncode
         self.stderr = stderr
         super().__init__(self.message)
+
 
 class SystemController:
     """Handles system control operations with security and error handling."""
@@ -37,7 +41,7 @@ class SystemController:
             'systeminfo': [],
             'tasklist': [],
             'ps': ['aux', '-ef'],
-            'kill': [],  # PID will be validated separately
+            'kill': [],
         }
     
     def _validate_command(self, command: str) -> Tuple[str, List[str]]:
@@ -45,24 +49,20 @@ class SystemController:
         if not command or not isinstance(command, str):
             raise ValueError("Command must be a non-empty string")
         
-        # Split command into parts
         parts = shlex.split(command)
         if not parts:
             raise ValueError("Empty command")
-            
+        
         cmd = parts[0].lower()
         args = parts[1:] if len(parts) > 1 else []
         
-        # Check if command is in whitelist
         if cmd not in self.safe_commands:
             raise ValueError(f"Command not allowed: {cmd}")
         
-        # Validate arguments
         allowed_args = self.safe_commands[cmd]
         if allowed_args and args and args[0] not in allowed_args:
             raise ValueError(f"Invalid arguments for {cmd}")
-            
-        # Special handling for process termination
+        
         if cmd == 'kill' and args:
             try:
                 pid = int(args[0])
@@ -70,7 +70,7 @@ class SystemController:
                     raise ValueError("PID must be a positive integer")
             except ValueError as e:
                 raise ValueError("Invalid PID") from e
-                
+        
         return cmd, args
     
     def get_system_info(self) -> Dict[str, str]:
@@ -133,18 +133,16 @@ class SystemController:
             SystemCommandError: If command execution fails
         """
         try:
-            # Validate and parse the command
             cmd, args = self._validate_command(command)
             
-            # Execute with proper argument handling
             result = subprocess.run(
                 [cmd] + args,
-                shell=False,  # Avoid shell injection
+                shell=False,
                 check=False,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=30  # Prevent hanging commands
+                timeout=30
             )
             
             if result.returncode != 0:
@@ -153,14 +151,13 @@ class SystemController:
                     returncode=result.returncode,
                     stderr=result.stderr
                 )
-                
+            
             return True, result.stdout.strip()
             
         except subprocess.TimeoutExpired as e:
             error_msg = f"Command timed out after {e.timeout} seconds"
             logger.error(error_msg)
             raise SystemCommandError(error_msg) from e
-            
         except subprocess.CalledProcessError as e:
             error_msg = f"Command failed: {e}"
             logger.error(error_msg)
@@ -169,14 +166,10 @@ class SystemController:
                 returncode=e.returncode,
                 stderr=e.stderr
             ) from e
-            
         except Exception as e:
             error_msg = f"Error executing command: {str(e)}"
             logger.exception(error_msg)
             raise SystemCommandError(error_msg) from e
-        except Exception as e:
-            logger.error(f"Error executing command '{command}': {e}")
-            return False, str(e)
     
     def system_control(self, action: str) -> Tuple[bool, str]:
         """Perform system control actions."""
@@ -196,41 +189,71 @@ class SystemController:
     
     def shutdown(self) -> Tuple[bool, str]:
         """Shutdown the system."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("shutdown /s /t 1")
-        return self.execute_system_command("shutdown -h now")
+        try:
+            if platform.system() == "Windows":
+                os.system("shutdown /s /t 1")
+            else:
+                os.system("shutdown -h now")
+            return True, "System is shutting down..."
+        except Exception as e:
+            return False, f"Failed to shutdown: {str(e)}"
     
     def restart(self) -> Tuple[bool, str]:
         """Restart the system."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("shutdown /r /t 1")
-        return self.execute_system_command("shutdown -r now")
+        try:
+            if platform.system() == "Windows":
+                os.system("shutdown /r /t 1")
+            else:
+                os.system("shutdown -r now")
+            return True, "System is restarting..."
+        except Exception as e:
+            return False, f"Failed to restart: {str(e)}"
     
     def sleep(self) -> Tuple[bool, str]:
         """Put the system to sleep."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
-        return self.execute_system_command("systemctl suspend")
+        try:
+            if platform.system() == "Windows":
+                os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+            else:
+                os.system("systemctl suspend")
+            return True, "System is going to sleep..."
+        except Exception as e:
+            return False, f"Failed to sleep: {str(e)}"
     
     def lock(self) -> Tuple[bool, str]:
         """Lock the system."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("rundll32.exe user32.dll,LockWorkStation")
-        elif platform.system() == "Darwin":  # macOS
-            return self.execute_system_command("/System/Library/CoreServices/Menu\ Extras/User.menu/Contents/Resources/CGSession -suspend")
-        return self.execute_system_command("gnome-screensaver-command -l")
+        try:
+            if platform.system() == "Windows":
+                os.system("rundll32.exe user32.dll,LockWorkStation")
+            elif platform.system() == "Darwin":
+                os.system("/System/Library/CoreServices/Menu\\ Extras/User.menu/Contents/Resources/CGSession -suspend")
+            else:
+                os.system("gnome-screensaver-command -l")
+            return True, "System is locked."
+        except Exception as e:
+            return False, f"Failed to lock: {str(e)}"
     
     def hibernate(self) -> Tuple[bool, str]:
         """Hibernate the system."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("shutdown /h")
-        return self.execute_system_command("systemctl hibernate")
+        try:
+            if platform.system() == "Windows":
+                os.system("shutdown /h")
+            else:
+                os.system("systemctl hibernate")
+            return True, "System is hibernating..."
+        except Exception as e:
+            return False, f"Failed to hibernate: {str(e)}"
     
     def logout(self) -> Tuple[bool, str]:
         """Log out the current user."""
-        if platform.system() == "Windows":
-            return self.execute_system_command("shutdown /l")
-        return self.execute_system_command("gnome-session-quit --no-prompt")
+        try:
+            if platform.system() == "Windows":
+                os.system("shutdown /l")
+            else:
+                os.system("gnome-session-quit --no-prompt")
+            return True, "Logging out..."
+        except Exception as e:
+            return False, f"Failed to logout: {str(e)}"
     
     def get_running_processes(self) -> list:
         """Get list of running processes."""
@@ -257,20 +280,25 @@ class SystemController:
         except Exception as e:
             return False, f"Error killing process {pid}: {e}"
 
+
 # Initialize system controller
 system_controller = SystemController()
+
 
 def get_system_info() -> Dict[str, str]:
     """Get system information."""
     return system_controller.get_system_info()
 
+
 def control_system(action: str) -> Tuple[bool, str]:
     """Control system actions."""
     return system_controller.system_control(action)
 
+
 def get_processes() -> list:
     """Get list of running processes."""
     return system_controller.get_running_processes()
+
 
 def terminate_process(pid: int) -> Tuple[bool, str]:
     """Terminate a process by PID."""
