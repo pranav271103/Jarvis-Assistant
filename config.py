@@ -1,26 +1,20 @@
+"""
+Configuration file for Jarvis AI Assistant
+"""
+
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
+
 class Config:
+    """Configuration class for Jarvis Assistant."""
+    
     # API Keys
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     
-    # Speech settings
-    VOICE_ID = 0  # 0 for male, 1 for female voice
-    SPEECH_RATE = 180  # Words per minute
-    
-    # Application settings
-    APP_NAME = "Jarvis AI Assistant"
-    VERSION = "2.0.0"
-    
-    # Paths
-    LOG_DIR = "logs"
-    CACHE_DIR = ".cache"
-    
-    # LLM Settings
+    # Gemini Model Configuration
     GENERATION_CONFIG = {
         "temperature": 0.7,
         "top_p": 0.95,
@@ -28,6 +22,7 @@ class Config:
         "max_output_tokens": 2048,
     }
     
+    # Safety Settings
     SAFETY_SETTINGS = [
         {
             "category": "HARM_CATEGORY_HARASSMENT",
@@ -44,9 +39,36 @@ class Config:
         {
             "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
             "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-        },
+        }
     ]
-
-# Create necessary directories
-os.makedirs(Config.LOG_DIR, exist_ok=True)
-os.makedirs(Config.CACHE_DIR, exist_ok=True)
+    
+    # Speech Recognition Settings
+    SPEECH_RECOGNITION_CONFIG = {
+        "energy_threshold": 300,
+        "pause_threshold": 0.8,
+        "dynamic_energy_threshold": True,
+        "timeout": 5,
+        "phrase_time_limit": 10
+    }
+    
+    # Text-to-Speech Settings
+    TTS_CONFIG = {
+        "voice_id": 0,
+        "rate": 180,
+        "volume": 1.0
+    }
+    
+    # Live Chat Settings
+    LIVE_CHAT_CONFIG = {
+        "max_empty_responses": 2,
+        "listening_timeout": 10,
+        "conversation_history_limit": 50,
+        "enable_streaming": True
+    }
+    
+    # Logging Configuration
+    LOG_CONFIG = {
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "file": "jarvis.log"
+    }
